@@ -12,6 +12,10 @@ class MediaRequest(BaseModel):
     images: list[str]
     audios: list[str]
 
+@app.get("/")
+async def root():
+    return {"message": "Service is running"}
+
 @app.post("/assemble")
 async def assemble_video(req: MediaRequest):
     try:
@@ -38,13 +42,17 @@ async def assemble_video(req: MediaRequest):
         video_segments = []
         for i, (img, aud) in enumerate(zip(image_files, audio_files)):
             seg = f"tmp/seg_{i}.mp4"
-            (
-                ffmpeg
-                .input(img, loop=1, t=ffmpeg.probe(aud)['format']['duration'])
-                .output(aud, vcodec='libx264', acodec='aac', strict='experimental', shortest=None, y=seg)
-                .run(overwrite_output=True)
-            )
-            video_segments.append(seg)
+            try:
+                audio_duration = float(ffmpeg.probe(aud)['format']['duration'])
+                (
+                    ffmpeg
+                    .input(img, loop=1, t=audio_duration)
+                    .output(aud, vcodec='libx264', acodec='aac', strict='experimental', shortest=None, y=seg)
+                    .run(overwrite_output=True)
+                )
+                video_segments.append(seg)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"FFmpeg error: {str(e)}")
 
         # Concatenate segments
         concat_file = "tmp/concat.txt"
@@ -52,10 +60,12 @@ async def assemble_video(req: MediaRequest):
             for seg in video_segments:
                 f.write(f"file '{seg}'\n")
         output_path = f"tmp/output_{uuid.uuid4().hex}.mp4"
-        ffmpeg.input(concat_file, format='concat', safe=0).output(output_path, c='copy', y=None).run(overwrite_output=True)
+        try:
+            ffmpeg.input(concat_file, format='concat', safe=0).output(output_path, c='copy', y=None).run(overwrite_output=True)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"FFmpeg concatenation error: {str(e)}")
 
-        # (Optional) Upload output_path to a file host and return the URL
-        # For now, just return the local path
+        # Return the local path for now
         return {"video_path": output_path}
 
     except Exception as e:
