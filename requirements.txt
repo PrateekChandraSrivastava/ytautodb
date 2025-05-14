@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+ffmpeg-python
+requests
+aiofiles
